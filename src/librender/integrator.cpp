@@ -1,5 +1,6 @@
 #include <thread>
 #include <mutex>
+#include <fstream>
 
 #include <enoki/morton.h>
 #include <mitsuba/core/profiler.h>
@@ -239,7 +240,8 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
                                                    const Vector2f &pos,
                                                    ScalarFloat diff_scale_factor,
                                                    Mask active) const {
-    Vector2f position_sample = pos + sampler->next_2d(active);
+    Vector2f offset = sampler->next_2d(active);
+    Vector2f position_sample = pos + offset;
 
     Point2f aperture_sample(.5f);
     if (sensor->needs_aperture_sample())
@@ -281,6 +283,20 @@ SamplingIntegrator<Float, Spectrum>::render_sample(const Scene *scene,
     aovs[2] = xyz.z();
     aovs[3] = select(result.second, Float(1.f), Float(0.f));
     aovs[4] = 1.f;
+
+    static std::mutex output_result;
+    /* Critical section: Print out result */ {
+        std::lock_guard<std::mutex> lock(output_result);
+
+        static std::ofstream fr ("samples.bin", std::ios::out | std::ios::binary);
+        fr.write(reinterpret_cast<const char*>(&pos[0]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&pos[1]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&offset[0]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&offset[1]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&aovs[0]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&aovs[1]), sizeof(float));
+        fr.write(reinterpret_cast<const char*>(&aovs[2]), sizeof(float));
+    }
 
     block->put(position_sample, aovs, active);
 
